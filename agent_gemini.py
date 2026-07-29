@@ -133,7 +133,7 @@ def run_agent(chat_id: int, messages_history: list[str], run_id: str) -> dict:
             response_parts.append(types.Part.from_function_response(
                 name=fc.name, response={"result": result_text}
             ))
-        contents.append(types.Content(role="tool", parts=response_parts))
+        contents.append(types.Content(role="user", parts=response_parts))
 
     parsed = _extract_json_object(final_text)
     log_event({"run_id": run_id, "chat_id": chat_id, "event": "final",
