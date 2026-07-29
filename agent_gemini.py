@@ -144,7 +144,8 @@ def run_agent(chat_id: int, messages_history: list[str], run_id: str) -> dict:
     if parsed is None:
         parsed = {"answer": final_text or "could not determine answer"}
 
-    return parsed"""
+    return parsed
+"""
 Free-tier data-analyst agent using Google's Gemini API (no credit card required).
 Same interface as agent_anthropic.run_agent so app.py can pick either backend.
 
