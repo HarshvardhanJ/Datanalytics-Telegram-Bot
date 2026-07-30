@@ -11,14 +11,27 @@ import json
 import os
 import re
 
+import openai
 from openai import OpenAI
 
 from tools import OPENAI_TOOL_SCHEMAS, dispatch_tool
 from logger import log_event
 
-# OpenRouter-style model id proxied through AIPipe. Swap via AIPIPE_MODEL env var,
-# e.g. "openai/gpt-4.1-mini", "google/gemini-2.5-flash", "anthropic/claude-sonnet-4.5".
-MODEL = os.environ.get("AIPIPE_MODEL", "openai/gpt-4.1-mini")
+# Default to a *free* OpenRouter model — ":free" variants are rate-limited, not
+# billed, so they sidestep the credit/402 issues paid routes can hit through a
+# shared course token. "openrouter/free" is OpenRouter's own auto-router: it
+# picks a free model that supports whatever capabilities the request needs
+# (here: tool calling), so we don't hardcode one specific free model ID that
+# might get rotated out later.
+MODEL = os.environ.get("AIPIPE_MODEL", "openrouter/free")
+
+# If the primary model 402s / errors, try these free, tool-calling-capable
+# models in order before giving up.
+FALLBACK_MODELS = [
+    "qwen/qwen3-coder:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "z-ai/glm-4.5-air:free",
+]
 MAX_TOOL_ITERS = 12
 
 SYSTEM_PROMPT = """\
@@ -72,6 +85,34 @@ def _extract_json_object(text: str) -> dict | None:
     return None
 
 
+def _create_with_fallback(client, messages, run_id, chat_id, state):
+    """Call chat.completions.create, falling back through FALLBACK_MODELS on
+    payment/credit errors (402) or model-not-found errors. Remembers whichever
+    model worked (in `state`) so later iterations in the same run don't re-try
+    ones we already know are broken."""
+    candidates = [state["model"]] + [m for m in FALLBACK_MODELS if m != state["model"]]
+    last_err = None
+    for model in candidates:
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=OPENAI_TOOL_SCHEMAS,
+                max_tokens=1500,
+            )
+            if model != state["model"]:
+                log_event({"run_id": run_id, "chat_id": chat_id, "event": "model_fallback",
+                           "from": state["model"], "to": model})
+                state["model"] = model
+            return resp
+        except (openai.APIStatusError, openai.NotFoundError) as e:
+            last_err = e
+            log_event({"run_id": run_id, "chat_id": chat_id, "event": "model_error",
+                       "model": model, "error": str(e)})
+            continue
+    raise last_err
+
+
 def run_agent(chat_id: int, messages_history: list[str], run_id: str) -> dict:
     client = OpenAI(
         api_key=os.environ["AIPIPE_TOKEN"],
@@ -95,20 +136,16 @@ def run_agent(chat_id: int, messages_history: list[str], run_id: str) -> dict:
         {"role": "user", "content": question},
     ]
 
+    state = {"model": MODEL}
     final_text = ""
     for iteration in range(MAX_TOOL_ITERS):
-        resp = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            tools=OPENAI_TOOL_SCHEMAS,
-            max_tokens=200,
-        )
+        resp = _create_with_fallback(client, messages, run_id, chat_id, state)
         msg = resp.choices[0].message
         final_text = (msg.content or "").strip()
 
         log_event({"run_id": run_id, "chat_id": chat_id, "event": "model_response",
-                   "iteration": iteration, "has_tool_calls": bool(msg.tool_calls),
-                   "text": final_text})
+                   "iteration": iteration, "model": state["model"],
+                   "has_tool_calls": bool(msg.tool_calls), "text": final_text})
 
         if not msg.tool_calls:
             break
