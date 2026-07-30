@@ -101,7 +101,7 @@ def run_agent(chat_id: int, messages_history: list[str], run_id: str) -> dict:
             model=MODEL,
             messages=messages,
             tools=OPENAI_TOOL_SCHEMAS,
-            max_tokens=1500,
+            max_tokens=750,
         )
         msg = resp.choices[0].message
         final_text = (msg.content or "").strip()
