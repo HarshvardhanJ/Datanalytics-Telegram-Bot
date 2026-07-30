@@ -5,4 +5,7 @@ pandas==2.2.2
 numpy==2.1.1
 python-dotenv==1.0.1
 ddgs>=8.0.0
+# default backend (AIPipe, OpenAI-compatible):
+openai>=1.50.0
+# alternative free backend:
 google-genai>=1.45.0
