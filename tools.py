@@ -139,7 +139,8 @@ OPENAI_TOOL_SCHEMAS = [
         },
     }
     for t in TOOL_SCHEMAS
-]"""
+]
+"""
 Tools available to the data-analyst agent:
 - run_python: execute python (pandas/numpy/requests available) and capture stdout
 - fetch_url: download a URL (CSV/JSON/HTML) and return truncated text content
